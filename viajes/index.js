@@ -21,9 +21,24 @@ function generarLink(aerolinea, origen, destino, fecha_ida, fecha_vuelta) {
     return `https://www.avianca.com/cl/es/vuelos/?from=${origen}&to=${destino}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
   } else if (a.includes('copa')) {
     return `https://www.copaair.com/es-cl/vuelos/?origin=${origen}&destination=${destino}&departureDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
+  } else if (a.includes('american')) {
+    return `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=OneWay&searchType=matrix&cabin=&carriers=AA&outboundDateString=${fecha_ida}&returnDateString=${fecha_vuelta}&origin=${origen}&destination=${destino}`;
   } else {
     return `https://www.google.com/travel/flights?q=vuelos+${origen}+a+${destino}`;
   }
+}
+
+function markdownAHtml(texto) {
+  return texto
+    .replace(/#{1,3} (.*)/g, '<h3 style="margin:16px 0 8px;color:#111;font-size:15px">$1</h3>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/---/g, '<hr style="border:none;border-top:1px solid #ebebea;margin:12px 0">')
+    .replace(/\n\n/g, '</p><p style="margin:6px 0;font-size:13px;color:#111">')
+    .replace(/\n/g, '<br>')
+    .replace(/^/, '<p style="margin:6px 0;font-size:13px;color:#111">')
+    .replace(/$/, '</p>')
+    .replace(/🔗 (.*?): (https?:\/\/\S+)/g, '🔗 <a href="$2" style="color:#111;font-weight:600">$1</a>');
 }
 
 app.post('/buscar-vuelos', async (req, res) => {
@@ -53,7 +68,7 @@ app.post('/buscar-vuelos', async (req, res) => {
     const ofertas = duffelData.data?.offers?.slice(0, 30) || [];
 
     if (ofertas.length === 0) {
-      return res.json({ respuesta: 'No encontré vuelos disponibles para esas fechas.' });
+      return res.json({ respuesta: 'No se encontraron vuelos disponibles para esas fechas.' });
     }
 
     const ofertasMapeadas = ofertas.map(o => ({
@@ -71,15 +86,15 @@ app.post('/buscar-vuelos', async (req, res) => {
     const necesitaMaleta = maleta === 'true' || maleta === true;
 
     const notaMaleta = necesitaMaleta
-      ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. DEBES agregar debajo de CADA opción: "💼 MALETA: Este precio no incluye maleta. Agrégala al momento de comprar (+$30-50 USD aprox según aerolínea)"`
-      : `El empleado viaja solo con carry on.`;
+      ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. Debajo de CADA opción agrega: "💼 Recordar agregar maleta de bodega al momento de comprar (+$30-50 USD aprox según aerolínea)"`
+      : `El empleado viaja con carry on. Busca la tarifa más económica que incluya carry on (no la tarifa básica sin equipaje).`;
 
     const mensaje = await anthropic.messages.create({
       model: 'claude-sonnet-4-5',
       max_tokens: 1024,
       messages: [{
         role: 'user',
-        content: `Eres un asistente de viajes corporativos de NotCo.
+        content: `Eres un asistente de viajes corporativos de NotCo que prepara un informe para el equipo de People/Facilities.
 
 El empleado busca vuelos de ${origen} a ${destino}.
 Fecha ida: ${fecha_ida}, Fecha vuelta: ${fecha_vuelta}
@@ -89,11 +104,12 @@ Presupuesto ideal: $500 USD (si no hay opciones bajo ese monto, muestra igual la
 ${notaMaleta}
 
 INSTRUCCIONES:
-- Busca la tarifa más económica
+- Presenta las 3 mejores opciones para que el equipo de People las evalúe y gestione la reserva
+- NO uses frases como "¿te gustaría proceder?" o "¿deseas reservar?" — esto es un informe para el equipo interno, no para el solicitante
 - Prioriza vuelos bajo $500 USD
 - Si alguna supera $500 USD indícalo con ⚠️
 - Muestra opciones de distintas aerolíneas si hay disponibles
-- Presenta las 3 mejores opciones en español con: aerolínea, horarios ida y vuelta, y precio total
+- Formato claro con aerolínea, horarios ida y vuelta, y precio total
 
 VUELOS DISPONIBLES:
 ${JSON.stringify(ofertasMapeadas, null, 2)}`
@@ -103,9 +119,10 @@ ${JSON.stringify(ofertasMapeadas, null, 2)}`
     const aerolineasUnicas = [...new Set(ofertasMapeadas.slice(0, 15).map(o => o.aerolinea_ida).filter(Boolean))];
     const linksTexto = aerolineasUnicas.map(a => `🔗 ${a}: ${generarLink(a, origen, destino, fecha_ida, fecha_vuelta)}`).join('\n');
 
-    const textoFinal = mensaje.content[0].text + `\n\n---\n**🔗 Links de compra (fechas precargadas):**\n${linksTexto}`;
+    const textoFinal = mensaje.content[0].text + `\n\n---\n**Links de compra (fechas precargadas):**\n${linksTexto}`;
+    const htmlFinal = markdownAHtml(textoFinal);
 
-    res.json({ respuesta: textoFinal });
+    res.json({ respuesta: htmlFinal });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
