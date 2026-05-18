@@ -55,7 +55,6 @@ app.post('/buscar-vuelos', async (req, res) => {
   try {
     let { origen, destino, fecha_ida, fecha_vuelta, preferencias, nombre, pasajeros } = req.body;
 
-    // Detectar si algún pasajero necesita maleta
     const necesitaMaleta = pasajeros && pasajeros.toLowerCase().includes('maleta 23kg: sí');
 
     origen = await obtenerCodigoIATA(origen);
@@ -88,7 +87,6 @@ app.post('/buscar-vuelos', async (req, res) => {
     }
 
     const ofertasMapeadas = ofertas.map(o => ({
-      id: o.id,
       precio: parseFloat(o.total_amount),
       moneda: o.total_currency,
       aerolinea_ida: o.slices?.[0]?.segments?.[0]?.marketing_carrier?.name,
@@ -100,8 +98,8 @@ app.post('/buscar-vuelos', async (req, res) => {
     }));
 
     const notaMaleta = necesitaMaleta
-      ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. Debajo de CADA opción agrega: "💼 Recordar agregar maleta de bodega al momento de comprar (+$30-50 USD aprox según aerolínea)"`
-      : `El empleado viaja con carry on. Busca la tarifa más económica que incluya carry on.`;
+      ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. Debajo de CADA opción agrega exactamente: "💼 Recordar agregar maleta de bodega al momento de comprar (+$30-50 USD aprox según aerolínea)"`
+      : `El empleado viaja con carry on.`;
 
     const mensaje = await anthropic.messages.create({
       model: 'claude-sonnet-4-5',
@@ -111,32 +109,35 @@ app.post('/buscar-vuelos', async (req, res) => {
         content: `Eres un asistente de viajes corporativos de NotCo que prepara un informe para el equipo de People/Facilities.
 
 Solicitante: ${nombre || 'Empleado NotCo'}
-El empleado busca vuelos de ${origen} a ${destino}.
+Vuelos de ${origen} a ${destino}.
 Fecha ida: ${fecha_ida}, Fecha vuelta: ${fecha_vuelta}
-Preferencias de horario: ${preferencias || 'sin preferencia'}
-Presupuesto ideal: $500 USD (si no hay opciones bajo ese monto, muestra igual las más económicas y avisa con ⚠️)
+Preferencias: ${preferencias || 'sin preferencia'}
+Presupuesto ideal: $500 USD (si no hay opciones bajo ese monto, muestra las más económicas y avisa con ⚠️)
 
 ${notaMaleta}
 
-INSTRUCCIONES:
-- Presenta las 3 mejores opciones para que el equipo de People las evalúe y gestione la reserva
-- NO uses frases como "¿te gustaría proceder?", "¿deseas reservar?" o notas sobre aerolíneas desconocidas
-- NO menciones "Duffel Airways" — si aparece, ignórala
+INSTRUCCIONES ESTRICTAS:
+- Presenta las 3 mejores opciones
+- NO incluyas IDs de oferta en ningún caso
+- NO uses frases como "¿te gustaría proceder?" o "¿deseas reservar?"
+- NO menciones "Duffel Airways" — ignórala completamente
 - Prioriza vuelos bajo $500 USD
-- Si alguna supera $500 USD indícalo con ⚠️
-- Muestra opciones de distintas aerolíneas si hay disponibles
-- Formato claro con aerolínea, horarios ida y vuelta, y precio total
+- Muestra distintas aerolíneas si hay disponibles
+- Formato: aerolínea, horarios ida y vuelta, precio total
 
 VUELOS DISPONIBLES:
 ${JSON.stringify(ofertasMapeadas, null, 2)}`
       }]
     });
 
-    const aerolineasUnicas = [...new Set(ofertasMapeadas.slice(0, 15).map(o => o.aerolinea_ida).filter(Boolean))];
-    const linksTexto = aerolineasUnicas
-      .filter(a => !a.toLowerCase().includes('duffel'))
-      .map(a => `🔗 ${a}: ${generarLink(a, origen, destino, fecha_ida, fecha_vuelta)}`)
-      .join('\n');
+    // Generar links por cada opción (top 3 aerolíneas)
+    const top3 = ofertasMapeadas
+      .filter(o => o.aerolinea_ida && !o.aerolinea_ida.toLowerCase().includes('duffel'))
+      .slice(0, 3);
+
+    const linksTexto = top3.map((o, i) => 
+      `🔗 Opción ${i+1} - ${o.aerolinea_ida}: ${generarLink(o.aerolinea_ida, origen, destino, fecha_ida, fecha_vuelta)}`
+    ).join('\n');
 
     const textoFinal = mensaje.content[0].text + `\n\n---\n**Links de compra (fechas precargadas):**\n${linksTexto}`;
     const htmlFinal = markdownAHtml(textoFinal);
