@@ -7,27 +7,38 @@ app.use(express.json());
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+async function obtenerCodigoIATA(ciudad) {
+  try {
+    console.log('Convirtiendo ciudad:', ciudad);
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 10,
+      messages: [{
+        role: 'user',
+        content: `Responde SOLO con el código IATA del aeropuerto principal de: "${ciudad}". Solo 3 letras, nada más.`
+      }]
+    });
+    const codigo = msg.content[0].text.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    console.log('Código IATA obtenido:', codigo);
+    return codigo.length === 3 ? codigo : ciudad.toUpperCase();
+  } catch (e) {
+    console.error('Error:', e.message);
+    return ciudad.toUpperCase();
+  }
+}
+
 function generarLink(aerolinea, origen, destino, fecha_ida, fecha_vuelta) {
   const o = origen.toUpperCase();
   const d = destino.toUpperCase();
   const a = (aerolinea || '').toLowerCase();
-  if (a.includes('latam')) {
-    return `https://www.latamairlines.com/cl/es/ofertas-vuelos?origin=${o}&destination=${d}&outbound=${fecha_ida}&inbound=${fecha_vuelta}&adt=1&cabin=Economy&trip=RT`;
-  } else if (a.includes('sky')) {
-    return `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
-  } else if (a.includes('jetsmart')) {
-    return `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
-  } else if (a.includes('aerolineas') || a.includes('aerolíneas')) {
-    return `https://www.aerolineas.com.ar/es-ar/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
-  } else if (a.includes('avianca')) {
-    return `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
-  } else if (a.includes('copa')) {
-    return `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
-  } else if (a.includes('american')) {
-    return `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=RT&origin=${o}&destination=${d}&outboundDateString=${fecha_ida}&returnDateString=${fecha_vuelta}`;
-  } else {
-    return `https://www.google.com/travel/flights?q=vuelos+${o}+a+${d}+${fecha_ida}`;
-  }
+  if (a.includes('latam')) return `https://www.latamairlines.com/cl/es/ofertas-vuelos?origin=${o}&destination=${d}&outbound=${fecha_ida}&inbound=${fecha_vuelta}&adt=1&cabin=Economy&trip=RT`;
+  if (a.includes('sky')) return `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
+  if (a.includes('jetsmart')) return `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
+  if (a.includes('aerolineas') || a.includes('aerolíneas')) return `https://www.aerolineas.com.ar/es-ar/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
+  if (a.includes('avianca')) return `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
+  if (a.includes('copa')) return `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
+  if (a.includes('american')) return `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=RT&origin=${o}&destination=${d}&outboundDateString=${fecha_ida}&returnDateString=${fecha_vuelta}`;
+  return `https://www.google.com/travel/flights?q=vuelos+${o}+a+${d}`;
 }
 
 function markdownAHtml(texto) {
@@ -45,7 +56,12 @@ function markdownAHtml(texto) {
 
 app.post('/buscar-vuelos', async (req, res) => {
   try {
-    const { origen, destino, fecha_ida, fecha_vuelta, preferencias, maleta } = req.body;
+    let { origen, destino, fecha_ida, fecha_vuelta, preferencias, maleta } = req.body;
+
+    origen = await obtenerCodigoIATA(origen);
+    destino = await obtenerCodigoIATA(destino);
+
+    console.log('Buscando vuelos:', origen, '->', destino);
 
     const response = await fetch('https://api.duffel.com/air/offer_requests', {
       method: 'POST',
@@ -57,8 +73,8 @@ app.post('/buscar-vuelos', async (req, res) => {
       body: JSON.stringify({
         data: {
           slices: [
-            { origin: origen.toUpperCase(), destination: destino.toUpperCase(), departure_date: fecha_ida },
-            { origin: destino.toUpperCase(), destination: origen.toUpperCase(), departure_date: fecha_vuelta }
+            { origin: origen, destination: destino, departure_date: fecha_ida },
+            { origin: destino, destination: origen, departure_date: fecha_vuelta }
           ],
           passengers: [{ type: 'adult' }],
           cabin_class: 'economy'
@@ -67,6 +83,7 @@ app.post('/buscar-vuelos', async (req, res) => {
     });
 
     const duffelData = await response.json();
+    console.log('Duffel respuesta:', JSON.stringify(duffelData).slice(0, 200));
     const ofertas = duffelData.data?.offers?.slice(0, 30) || [];
 
     if (ofertas.length === 0) {
@@ -86,7 +103,6 @@ app.post('/buscar-vuelos', async (req, res) => {
     }));
 
     const necesitaMaleta = maleta === 'true' || maleta === true;
-
     const notaMaleta = necesitaMaleta
       ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. Debajo de CADA opción agrega: "💼 Recordar agregar maleta de bodega al momento de comprar (+$30-50 USD aprox según aerolínea)"`
       : `El empleado viaja con carry on. Busca la tarifa más económica que incluya carry on.`;
@@ -98,7 +114,7 @@ app.post('/buscar-vuelos', async (req, res) => {
         role: 'user',
         content: `Eres un asistente de viajes corporativos de NotCo que prepara un informe para el equipo de People/Facilities.
 
-El empleado busca vuelos de ${origen.toUpperCase()} a ${destino.toUpperCase()}.
+El empleado busca vuelos de ${origen} a ${destino}.
 Fecha ida: ${fecha_ida}, Fecha vuelta: ${fecha_vuelta}
 Preferencias de horario: ${preferencias || 'sin preferencia'}
 Presupuesto ideal: $500 USD (si no hay opciones bajo ese monto, muestra igual las más económicas y avisa con ⚠️)
@@ -108,7 +124,7 @@ ${notaMaleta}
 INSTRUCCIONES:
 - Presenta las 3 mejores opciones para que el equipo de People las evalúe y gestione la reserva
 - NO uses frases como "¿te gustaría proceder?", "¿deseas reservar?" o notas sobre aerolíneas desconocidas
-- NO menciones "Duffel Airways" como aerolínea — si aparece, ignórala o inclúyela sin comentarios extra
+- NO menciones "Duffel Airways" — si aparece, ignórala
 - Prioriza vuelos bajo $500 USD
 - Si alguna supera $500 USD indícalo con ⚠️
 - Muestra opciones de distintas aerolíneas si hay disponibles
@@ -130,7 +146,7 @@ ${JSON.stringify(ofertasMapeadas, null, 2)}`
 
     res.json({ respuesta: htmlFinal });
   } catch (error) {
-    console.error(error);
+    console.error('Error general:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
