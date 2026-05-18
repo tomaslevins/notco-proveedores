@@ -9,7 +9,6 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 async function obtenerCodigoIATA(ciudad) {
   try {
-    console.log('Convirtiendo ciudad:', ciudad);
     const msg = await anthropic.messages.create({
       model: 'claude-sonnet-4-5',
       max_tokens: 10,
@@ -19,10 +18,8 @@ async function obtenerCodigoIATA(ciudad) {
       }]
     });
     const codigo = msg.content[0].text.trim().toUpperCase().replace(/[^A-Z]/g, '');
-    console.log('Código IATA obtenido:', codigo);
     return codigo.length === 3 ? codigo : ciudad.toUpperCase();
   } catch (e) {
-    console.error('Error:', e.message);
     return ciudad.toUpperCase();
   }
 }
@@ -56,12 +53,13 @@ function markdownAHtml(texto) {
 
 app.post('/buscar-vuelos', async (req, res) => {
   try {
-    let { origen, destino, fecha_ida, fecha_vuelta, preferencias, maleta } = req.body;
+    let { origen, destino, fecha_ida, fecha_vuelta, preferencias, nombre, pasajeros } = req.body;
+
+    // Detectar si algún pasajero necesita maleta
+    const necesitaMaleta = pasajeros && pasajeros.toLowerCase().includes('maleta 23kg: sí');
 
     origen = await obtenerCodigoIATA(origen);
     destino = await obtenerCodigoIATA(destino);
-
-    console.log('Buscando vuelos:', origen, '->', destino);
 
     const response = await fetch('https://api.duffel.com/air/offer_requests', {
       method: 'POST',
@@ -83,7 +81,6 @@ app.post('/buscar-vuelos', async (req, res) => {
     });
 
     const duffelData = await response.json();
-    console.log('Duffel respuesta:', JSON.stringify(duffelData).slice(0, 200));
     const ofertas = duffelData.data?.offers?.slice(0, 30) || [];
 
     if (ofertas.length === 0) {
@@ -102,7 +99,6 @@ app.post('/buscar-vuelos', async (req, res) => {
       llegada_vuelta: o.slices?.[1]?.segments?.[0]?.arriving_at,
     }));
 
-    const necesitaMaleta = maleta === 'true' || maleta === true;
     const notaMaleta = necesitaMaleta
       ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. Debajo de CADA opción agrega: "💼 Recordar agregar maleta de bodega al momento de comprar (+$30-50 USD aprox según aerolínea)"`
       : `El empleado viaja con carry on. Busca la tarifa más económica que incluya carry on.`;
@@ -114,6 +110,7 @@ app.post('/buscar-vuelos', async (req, res) => {
         role: 'user',
         content: `Eres un asistente de viajes corporativos de NotCo que prepara un informe para el equipo de People/Facilities.
 
+Solicitante: ${nombre || 'Empleado NotCo'}
 El empleado busca vuelos de ${origen} a ${destino}.
 Fecha ida: ${fecha_ida}, Fecha vuelta: ${fecha_vuelta}
 Preferencias de horario: ${preferencias || 'sin preferencia'}
@@ -146,7 +143,7 @@ ${JSON.stringify(ofertasMapeadas, null, 2)}`
 
     res.json({ respuesta: htmlFinal });
   } catch (error) {
-    console.error('Error general:', error.message);
+    console.error('Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
