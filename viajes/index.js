@@ -52,7 +52,7 @@ function markdownAHtml(texto) {
 }
 
 async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta) {
-  const urlIda = `https://serpapi.io/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&return_date=${fecha_vuelta}&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
+  const urlIda = `https://serpapi.com/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&return_date=${fecha_vuelta}&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
 
   const response = await fetch(urlIda);
   const data = await response.json();
