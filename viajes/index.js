@@ -53,10 +53,10 @@ function markdownAHtml(texto) {
     .replace(/🔗 (.*?): (https?:\/\/[^\s<]+)/g, '🔗 <a href="$2" style="color:#111;font-weight:600">$1</a>');
 }
 
-async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta) {
+async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta, numPasajeros = 1) {
   // Búsqueda solo ida (type=2)
-  const urlIda = `https://serpapi.com/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&type=2&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
-  const urlVuelta = `https://serpapi.com/search.json?engine=google_flights&departure_id=${destino}&arrival_id=${origen}&outbound_date=${fecha_vuelta}&type=2&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
+  const urlIda = `https://serpapi.com/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&type=2&adults=${numPasajeros}&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
+  const urlVuelta = `https://serpapi.com/search.json?engine=google_flights&departure_id=${destino}&arrival_id=${origen}&outbound_date=${fecha_vuelta}&type=2&adults=${numPasajeros}&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
 
   const [resIda, resVuelta] = await Promise.all([fetch(urlIda), fetch(urlVuelta)]);
   const [dataIda, dataVuelta] = await Promise.all([resIda.json(), resVuelta.json()]);
@@ -125,11 +125,14 @@ app.post('/buscar-vuelos', async (req, res) => {
     let { origen, destino, fecha_ida, fecha_vuelta, preferencias, nombre, pasajeros } = req.body;
 
     const necesitaMaleta = pasajeros && pasajeros.toLowerCase().includes('maleta 23kg: sí');
+    
+    // Contar número de pasajeros desde el texto
+    const numPasajeros = pasajeros ? (pasajeros.match(/Pasajero \d+:/g) || ['Pasajero 1:']).length : 1;
 
     origen = await obtenerCodigoIATA(origen);
     destino = await obtenerCodigoIATA(destino);
 
-    const vuelos = await buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta);
+    const vuelos = await buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta, numPasajeros);
 
     if (vuelos.length === 0) {
       return res.json({ respuesta: 'No se encontraron vuelos disponibles para esas fechas.' });
@@ -147,7 +150,7 @@ app.post('/buscar-vuelos', async (req, res) => {
         content: `Eres un asistente de viajes corporativos de NotCo que prepara un informe para el equipo de People/Facilities.
 
 Solicitante: ${nombre || 'Empleado NotCo'}
-Vuelos de ${origen} a ${destino}.
+Vuelos de ${origen} a ${destino}. Pasajeros: ${numPasajeros}.
 Fecha ida: ${fecha_ida}, Fecha vuelta: ${fecha_vuelta}
 Preferencias: ${preferencias || 'sin preferencia'}
 Presupuesto ideal: $500 USD (si no hay opciones bajo ese monto, muestra las más económicas y avisa con ⚠️)
