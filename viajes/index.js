@@ -32,7 +32,7 @@ function generarLink(aerolinea, origen, destino, fecha_ida, fecha_vuelta) {
   if (a.includes('sky')) return `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
   if (a.includes('jetsmart')) return `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
   if (a.includes('aerolineas') || a.includes('aerolíneas')) return `https://www.aerolineas.com.ar/es-ar/vuelos?origin=${o}&destination=${d}&outboundDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1&tripType=RT`;
-  if (a.includes('klm')) return `https://www.klm.com/search/flights?origin=${o}&destination=${d}&outboundDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1&cabinClass=ECONOMY`;
+  if (a.includes('klm')) return `https://www.google.com/travel/flights?q=vuelos+KLM+${o}+a+${d}+${fecha_ida}`;
   if (a.includes('avianca')) return `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
   if (a.includes('copa')) return `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
   if (a.includes('american')) return `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=RT&origin=${o}&destination=${d}&outboundDateString=${fecha_ida}&returnDateString=${fecha_vuelta}`;
@@ -54,47 +54,70 @@ function markdownAHtml(texto) {
 }
 
 async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta) {
-  const urlIda = `https://serpapi.com/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&return_date=${fecha_vuelta}&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
+  // Búsqueda solo ida (type=2)
+  const urlIda = `https://serpapi.com/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&type=2&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
+  const urlVuelta = `https://serpapi.com/search.json?engine=google_flights&departure_id=${destino}&arrival_id=${origen}&outbound_date=${fecha_vuelta}&type=2&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
 
-  const response = await fetch(urlIda);
-  const data = await response.json();
-  console.log('SerpAPI response:', JSON.stringify(data, null, 2));
+  const [resIda, resVuelta] = await Promise.all([fetch(urlIda), fetch(urlVuelta)]);
+  const [dataIda, dataVuelta] = await Promise.all([resIda.json(), resVuelta.json()]);
 
-  const vuelos = [];
+  // Parsear vuelos de ida
+  const vuelosIda = [...(dataIda.best_flights || []), ...(dataIda.other_flights || [])]
+    .filter(v => (v.flights || []).length > 0)
+    .map(v => {
+      const segs = v.flights;
+      return {
+        precio: v.price || 0,
+        aerolinea: segs[0].airline || 'Desconocida',
+        salida: segs[0].departure_airport?.time || '',
+        llegada: segs[segs.length-1].arrival_airport?.time || '',
+        duracion: v.total_duration || 0,
+        escalas: segs.length - 1
+      };
+    })
+    .filter(v => v.escalas === 0) // solo directos
+    .slice(0, 10);
 
-  const todasOfertas = [
-    ...(data.best_flights || []),
-    ...(data.other_flights || [])
-  ];
+  // Parsear vuelos de vuelta
+  const vuelosVuelta = [...(dataVuelta.best_flights || []), ...(dataVuelta.other_flights || [])]
+    .filter(v => (v.flights || []).length > 0)
+    .map(v => {
+      const segs = v.flights;
+      return {
+        precio: v.price || 0,
+        aerolinea: segs[0].airline || 'Desconocida',
+        salida: segs[0].departure_airport?.time || '',
+        llegada: segs[segs.length-1].arrival_airport?.time || '',
+        duracion: v.total_duration || 0,
+        escalas: segs.length - 1
+      };
+    })
+    .filter(v => v.escalas === 0) // solo directos
+    .slice(0, 10);
 
-  for (const vuelo of todasOfertas) {
-    const flights = vuelo.flights || [];
-    if (flights.length === 0) continue;
-
-    const primerSegmento = flights[0];
-    const ultimoSegmento = flights[flights.length - 1];
-
-    // Vuelo de regreso
-    const returnFlights = vuelo.return_flights?.flights || vuelo.layovers?.return_flights || [];
-    const primerSegmentoVuelta = returnFlights[0] || null;
-    const ultimoSegmentoVuelta = returnFlights[returnFlights.length - 1] || null;
-
-    vuelos.push({
-      precio: vuelo.price,
-      moneda: 'USD',
-      aerolinea_ida: primerSegmento.airline || 'Desconocida',
-      salida_ida: primerSegmento.departure_airport?.time || '',
-      llegada_ida: ultimoSegmento.arrival_airport?.time || '',
-      duracion_ida: vuelo.total_duration || 0,
-      escalas_ida: flights.length - 1,
-      aerolinea_vuelta: primerSegmentoVuelta?.airline || primerSegmento.airline || 'Desconocida',
-      salida_vuelta: primerSegmentoVuelta?.departure_airport?.time || '',
-      llegada_vuelta: ultimoSegmentoVuelta?.arrival_airport?.time || '',
-      escalas_vuelta: returnFlights.length > 0 ? returnFlights.length - 1 : 0,
-    });
+  // Combinar todas las combinaciones y ordenar por precio total
+  const combinaciones = [];
+  for (const ida of vuelosIda) {
+    for (const vuelta of vuelosVuelta) {
+      combinaciones.push({
+        precio_total: ida.precio + vuelta.precio,
+        moneda: 'USD',
+        aerolinea_ida: ida.aerolinea,
+        salida_ida: ida.salida,
+        llegada_ida: ida.llegada,
+        duracion_ida: ida.duracion,
+        escalas_ida: ida.escalas,
+        aerolinea_vuelta: vuelta.aerolinea,
+        salida_vuelta: vuelta.salida,
+        llegada_vuelta: vuelta.llegada,
+        duracion_vuelta: vuelta.duracion,
+        escalas_vuelta: vuelta.escalas
+      });
+    }
   }
 
-  return vuelos.slice(0, 30);
+  // Ordenar por precio total y retornar top 20
+  return combinaciones.sort((a, b) => a.precio_total - b.precio_total).slice(0, 20);
 }
 
 app.post('/buscar-vuelos', async (req, res) => {
@@ -137,11 +160,11 @@ INSTRUCCIONES ESTRICTAS:
 - Prioriza vuelos bajo $500 USD
 - Prioriza SIEMPRE vuelos directos (sin escalas). Si no hay vuelos directos disponibles, menciona las escalas claramente con ⚠️
 - Muestra distintas aerolíneas si hay disponibles
-- Formato: aerolínea, horarios ida, precio total, número de escalas
-- El precio mostrado SIEMPRE incluye ida y vuelta (round trip) — indícalo claramente en cada opción
-- Para cada opción muestra SIEMPRE:
-  ✈️ Ida: [fecha_ida], [salida_ida] → [llegada_ida]
-  🔄 Regreso: [fecha_vuelta], [salida_vuelta] → [llegada_vuelta] (si salida_vuelta está vacío, indica "ver horarios en el link de compra")
+- Para cada opción muestra SIEMPRE este formato:
+  ✈️ Ida: [fecha_ida], [salida_ida] → [llegada_ida] ([aerolinea_ida])
+  🔄 Regreso: [fecha_vuelta], [salida_vuelta] → [llegada_vuelta] ([aerolinea_vuelta])
+  💰 Precio total: $[precio_total] USD (ida + vuelta)
+- Si ida y vuelta son de distintas aerolíneas, destácalo como "✨ Combinación más económica"
 - NO menciones que "se requiere validar" ni hagas observaciones sobre datos faltantes
 
 VUELOS DISPONIBLES:
@@ -151,9 +174,15 @@ ${JSON.stringify(vuelos, null, 2)}`
 
     const top3 = vuelos.slice(0, 3);
 
-    const linksTexto = top3.map((v, i) =>
-      `🔗 Opción ${i + 1} - ${v.aerolinea_ida}: ${generarLink(v.aerolinea_ida, origen, destino, fecha_ida, fecha_vuelta)}`
-    ).join('\n');
+    const linksTexto = top3.map((v, i) => {
+      const linkIda = generarLink(v.aerolinea_ida, origen, destino, fecha_ida, fecha_vuelta);
+      if (v.aerolinea_ida === v.aerolinea_vuelta) {
+        return `🔗 Opción ${i + 1} - ${v.aerolinea_ida}: ${linkIda}`;
+      } else {
+        const linkVuelta = generarLink(v.aerolinea_vuelta, destino, origen, fecha_vuelta, fecha_ida);
+        return `🔗 Opción ${i + 1} - Ida (${v.aerolinea_ida}): ${linkIda}\n🔗 Opción ${i + 1} - Vuelta (${v.aerolinea_vuelta}): ${linkVuelta}`;
+      }
+    }).join('\n');
 
     const textoFinal = mensaje.content[0].text + `\n\n---\n**Links de compra (fechas precargadas):**\n${linksTexto}`;
     const htmlFinal = markdownAHtml(textoFinal);
