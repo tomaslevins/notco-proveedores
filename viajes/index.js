@@ -24,20 +24,33 @@ async function obtenerCodigoIATA(ciudad) {
   }
 }
 
-function generarLink(aerolinea, origen, destino, fecha_ida, fecha_vuelta) {
+function generarLink(aerolinea, origen, destino, fecha, oneway = false) {
   const o = origen.toUpperCase();
   const d = destino.toUpperCase();
   const a = (aerolinea || '').toLowerCase();
-  if (a.includes('latam')) return `https://www.latamairlines.com/cl/es/ofertas-vuelos?origin=${o}&destination=${d}&outbound=${fecha_ida}&inbound=${fecha_vuelta}&adt=1&cabin=Economy&trip=RT`;
-  if (a.includes('sky')) return `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
-  if (a.includes('jetsmart')) return `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
-  if (a.includes('aerolineas') || a.includes('aerolíneas')) return `https://www.aerolineas.com.ar/es-ar/vuelos?origin=${o}&destination=${d}&outboundDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1&tripType=RT`;
-  if (a.includes('klm')) return `https://www.google.com/travel/flights?q=vuelos+KLM+${o}+a+${d}+${fecha_ida}`;
-  if (a.includes('avianca')) return `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
-  if (a.includes('copa')) return `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
-  if (a.includes('american')) return `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=RT&origin=${o}&destination=${d}&outboundDateString=${fecha_ida}&returnDateString=${fecha_vuelta}`;
-  // Fallback: Google Flights con ruta y fechas precargadas
-  return `https://www.google.com/travel/flights/search?tfs=CBwQARoaEgoyMDI2LTA5LTAxagcIARIDU0NMcgcIARIDRVpFGhoSCjIwMjYtMDktMDVqBwgBEgNFWkVyBwgBEgNTQ0w`;
+  if (a.includes('latam')) return oneway
+    ? `https://www.latamairlines.com/cl/es/ofertas-vuelos?origin=${o}&destination=${d}&outbound=${fecha}&adt=1&cabin=Economy&trip=OW`
+    : `https://www.latamairlines.com/cl/es/ofertas-vuelos?origin=${o}&destination=${d}&outbound=${fecha}&adt=1&cabin=Economy&trip=RT`;
+  if (a.includes('sky')) return oneway
+    ? `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha}&adults=1`
+    : `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha}&adults=1`;
+  if (a.includes('jetsmart')) return oneway
+    ? `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha}&adults=1`
+    : `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha}&adults=1`;
+  if (a.includes('aerolineas') || a.includes('aerolíneas')) return oneway
+    ? `https://www.aerolineas.com.ar/es-ar/vuelos?origin=${o}&destination=${d}&outboundDate=${fecha}&adults=1&tripType=OW`
+    : `https://www.aerolineas.com.ar/es-ar/vuelos?origin=${o}&destination=${d}&outboundDate=${fecha}&adults=1&tripType=RT`;
+  if (a.includes('klm')) return `https://www.google.com/travel/flights?q=vuelos+KLM+${o}+a+${d}+${fecha}`;
+  if (a.includes('avianca')) return oneway
+    ? `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha}&adults=1`
+    : `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha}&adults=1`;
+  if (a.includes('copa')) return oneway
+    ? `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha}&adults=1`
+    : `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha}&adults=1`;
+  if (a.includes('american')) return oneway
+    ? `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=OW&origin=${o}&destination=${d}&outboundDateString=${fecha}`
+    : `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=RT&origin=${o}&destination=${d}&outboundDateString=${fecha}`;
+  return `https://www.google.com/travel/flights?q=vuelos+${o}+a+${d}+${fecha}`;
 }
 
 function markdownAHtml(texto) {
@@ -178,11 +191,15 @@ ${JSON.stringify(vuelos, null, 2)}`
     const top3 = vuelos.slice(0, 3);
 
     const linksTexto = top3.map((v, i) => {
-      const linkIda = generarLink(v.aerolinea_ida, origen, destino, fecha_ida, fecha_vuelta);
-      if (v.aerolinea_ida === v.aerolinea_vuelta) {
-        return `🔗 Opción ${i + 1} - ${v.aerolinea_ida}: ${linkIda}`;
+      const mismaAerolinea = v.aerolinea_ida === v.aerolinea_vuelta;
+      if (mismaAerolinea) {
+        // Round trip en la misma aerolínea
+        const linkRT = generarLink(v.aerolinea_ida, origen, destino, fecha_ida, false);
+        return `🔗 Opción ${i + 1} - ${v.aerolinea_ida} (ida y vuelta): ${linkRT}`;
       } else {
-        const linkVuelta = generarLink(v.aerolinea_vuelta, destino, origen, fecha_vuelta, fecha_ida);
+        // One-way separados
+        const linkIda = generarLink(v.aerolinea_ida, origen, destino, fecha_ida, true);
+        const linkVuelta = generarLink(v.aerolinea_vuelta, destino, origen, fecha_vuelta, true);
         return `🔗 Opción ${i + 1} - Ida (${v.aerolinea_ida}): ${linkIda}\n🔗 Opción ${i + 1} - Vuelta (${v.aerolinea_vuelta}): ${linkVuelta}`;
       }
     }).join('\n');
