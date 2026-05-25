@@ -51,6 +51,44 @@ function markdownAHtml(texto) {
     .replace(/🔗 (.*?): (https?:\/\/[^\s<]+)/g, '🔗 <a href="$2" style="color:#111;font-weight:600">$1</a>');
 }
 
+async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta) {
+  const urlIda = `https://serpapi.com/search.json?engine=google_flights&departure_id=${origen}&arrival_id=${destino}&outbound_date=${fecha_ida}&return_date=${fecha_vuelta}&currency=USD&hl=es&gl=cl&api_key=${process.env.SERPAPI_KEY}`;
+
+  const response = await fetch(urlIda);
+  const data = await response.json();
+  console.log('SerpAPI response:', JSON.stringify(data, null, 2));
+
+  const vuelos = [];
+
+  const todasOfertas = [
+    ...(data.best_flights || []),
+    ...(data.other_flights || [])
+  ];
+
+  for (const vuelo of todasOfertas) {
+    const flights = vuelo.flights || [];
+    if (flights.length === 0) continue;
+
+    const primerSegmento = flights[0];
+    const ultimoSegmento = flights[flights.length - 1];
+
+    vuelos.push({
+      precio: vuelo.price,
+      moneda: 'USD',
+      aerolinea_ida: primerSegmento.airline || 'Desconocida',
+      salida_ida: primerSegmento.departure_airport?.time || '',
+      llegada_ida: ultimoSegmento.arrival_airport?.time || '',
+      duracion_ida: vuelo.total_duration || 0,
+      escalas_ida: flights.length - 1,
+      aerolinea_vuelta: primerSegmento.airline || 'Desconocida',
+      salida_vuelta: '',
+      llegada_vuelta: '',
+    });
+  }
+
+  return vuelos.slice(0, 30);
+}
+
 app.post('/buscar-vuelos', async (req, res) => {
   try {
     let { origen, destino, fecha_ida, fecha_vuelta, preferencias, nombre, pasajeros } = req.body;
@@ -60,42 +98,11 @@ app.post('/buscar-vuelos', async (req, res) => {
     origen = await obtenerCodigoIATA(origen);
     destino = await obtenerCodigoIATA(destino);
 
-    const response = await fetch('https://api.duffel.com/air/offer_requests', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.DUFFEL_TOKEN}`,
-        'Duffel-Version': 'v2',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        data: {
-          slices: [
-            { origin: origen, destination: destino, departure_date: fecha_ida },
-            { origin: destino, destination: origen, departure_date: fecha_vuelta }
-          ],
-          passengers: [{ type: 'adult' }],
-          cabin_class: 'economy'
-        }
-      })
-    });
+    const vuelos = await buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta);
 
-    const duffelData = await response.json();
-    const ofertas = duffelData.data?.offers?.slice(0, 30) || [];
-
-    if (ofertas.length === 0) {
+    if (vuelos.length === 0) {
       return res.json({ respuesta: 'No se encontraron vuelos disponibles para esas fechas.' });
     }
-
-    const ofertasMapeadas = ofertas.map(o => ({
-      precio: parseFloat(o.total_amount),
-      moneda: o.total_currency,
-      aerolinea_ida: o.slices?.[0]?.segments?.[0]?.marketing_carrier?.name,
-      aerolinea_vuelta: o.slices?.[1]?.segments?.[0]?.marketing_carrier?.name,
-      salida_ida: o.slices?.[0]?.segments?.[0]?.departing_at,
-      llegada_ida: o.slices?.[0]?.segments?.[0]?.arriving_at,
-      salida_vuelta: o.slices?.[1]?.segments?.[0]?.departing_at,
-      llegada_vuelta: o.slices?.[1]?.segments?.[0]?.arriving_at,
-    }));
 
     const notaMaleta = necesitaMaleta
       ? `IMPORTANTE: El empleado necesita maleta de bodega 23kg. Debajo de CADA opción agrega exactamente: "💼 Recordar agregar maleta de bodega al momento de comprar (+$30-50 USD aprox según aerolínea)"`
@@ -118,25 +125,21 @@ ${notaMaleta}
 
 INSTRUCCIONES ESTRICTAS:
 - Presenta las 3 mejores opciones
-- NO incluyas IDs de oferta en ningún caso
 - NO uses frases como "¿te gustaría proceder?" o "¿deseas reservar?"
-- NO menciones "Duffel Airways" — ignórala completamente
 - Prioriza vuelos bajo $500 USD
+- Prioriza vuelos directos o con menos escalas
 - Muestra distintas aerolíneas si hay disponibles
-- Formato: aerolínea, horarios ida y vuelta, precio total
+- Formato: aerolínea, horarios ida, precio total, número de escalas
 
 VUELOS DISPONIBLES:
-${JSON.stringify(ofertasMapeadas, null, 2)}`
+${JSON.stringify(vuelos, null, 2)}`
       }]
     });
 
-    // Generar links por cada opción (top 3 aerolíneas)
-    const top3 = ofertasMapeadas
-      .filter(o => o.aerolinea_ida && !o.aerolinea_ida.toLowerCase().includes('duffel'))
-      .slice(0, 3);
+    const top3 = vuelos.slice(0, 3);
 
-    const linksTexto = top3.map((o, i) => 
-      `🔗 Opción ${i+1} - ${o.aerolinea_ida}: ${generarLink(o.aerolinea_ida, origen, destino, fecha_ida, fecha_vuelta)}`
+    const linksTexto = top3.map((v, i) =>
+      `🔗 Opción ${i + 1} - ${v.aerolinea_ida}: ${generarLink(v.aerolinea_ida, origen, destino, fecha_ida, fecha_vuelta)}`
     ).join('\n');
 
     const textoFinal = mensaje.content[0].text + `\n\n---\n**Links de compra (fechas precargadas):**\n${linksTexto}`;
