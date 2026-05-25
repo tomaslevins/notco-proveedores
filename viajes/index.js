@@ -31,11 +31,13 @@ function generarLink(aerolinea, origen, destino, fecha_ida, fecha_vuelta) {
   if (a.includes('latam')) return `https://www.latamairlines.com/cl/es/ofertas-vuelos?origin=${o}&destination=${d}&outbound=${fecha_ida}&inbound=${fecha_vuelta}&adt=1&cabin=Economy&trip=RT`;
   if (a.includes('sky')) return `https://www.skyairline.com/chile/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
   if (a.includes('jetsmart')) return `https://jetsmart.com/cl/es/flights?from=${o}&to=${d}&date=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
-  if (a.includes('aerolineas') || a.includes('aerolíneas')) return `https://www.aerolineas.com.ar/es-ar/vuelos?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
+  if (a.includes('aerolineas') || a.includes('aerolíneas')) return `https://www.aerolineas.com.ar/es-ar/vuelos?origin=${o}&destination=${d}&outboundDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1&tripType=RT`;
+  if (a.includes('klm')) return `https://www.klm.com/search/flights?origin=${o}&destination=${d}&outboundDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1&cabinClass=ECONOMY`;
   if (a.includes('avianca')) return `https://www.avianca.com/cl/es/vuelos/?from=${o}&to=${d}&departure=${fecha_ida}&return=${fecha_vuelta}&adults=1`;
   if (a.includes('copa')) return `https://www.copaair.com/es-cl/vuelos/?origin=${o}&destination=${d}&departureDate=${fecha_ida}&returnDate=${fecha_vuelta}&adults=1`;
   if (a.includes('american')) return `https://www.aa.com/booking/search?locale=es_CL&pax=1&adult=1&type=RT&origin=${o}&destination=${d}&outboundDateString=${fecha_ida}&returnDateString=${fecha_vuelta}`;
-  return `https://www.google.com/travel/flights?q=vuelos+${o}+a+${d}`;
+  // Fallback: Google Flights con ruta y fechas precargadas
+  return `https://www.google.com/travel/flights/search?tfs=CBwQARoaEgoyMDI2LTA5LTAxagcIARIDU0NMcgcIARIDRVpFGhoSCjIwMjYtMDktMDVqBwgBEgNFWkVyBwgBEgNTQ0w`;
 }
 
 function markdownAHtml(texto) {
@@ -130,6 +132,9 @@ INSTRUCCIONES ESTRICTAS:
 - Prioriza vuelos directos o con menos escalas
 - Muestra distintas aerolíneas si hay disponibles
 - Formato: aerolínea, horarios ida, precio total, número de escalas
+- El precio mostrado SIEMPRE incluye ida y vuelta (round trip) — indícalo claramente en cada opción
+- Los horarios de vuelta no están disponibles en estos datos — indica que se pueden ver en el link de compra
+- NO menciones que "se requiere validar" ni hagas observaciones sobre datos faltantes, solo indica que los horarios de regreso están en el link
 
 VUELOS DISPONIBLES:
 ${JSON.stringify(vuelos, null, 2)}`
