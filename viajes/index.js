@@ -135,7 +135,7 @@ INSTRUCCIONES ESTRICTAS:
 - Presenta las 3 mejores opciones
 - NO uses frases como "¿te gustaría proceder?" o "¿deseas reservar?"
 - Prioriza vuelos bajo $500 USD
-- Prioriza vuelos directos o con menos escalas
+- Prioriza SIEMPRE vuelos directos (sin escalas). Si no hay vuelos directos disponibles, menciona las escalas claramente con ⚠️
 - Muestra distintas aerolíneas si hay disponibles
 - Formato: aerolínea, horarios ida, precio total, número de escalas
 - El precio mostrado SIEMPRE incluye ida y vuelta (round trip) — indícalo claramente en cada opción
