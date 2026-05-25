@@ -74,6 +74,11 @@ async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta) {
     const primerSegmento = flights[0];
     const ultimoSegmento = flights[flights.length - 1];
 
+    // Vuelo de regreso
+    const returnFlights = vuelo.return_flights?.flights || vuelo.layovers?.return_flights || [];
+    const primerSegmentoVuelta = returnFlights[0] || null;
+    const ultimoSegmentoVuelta = returnFlights[returnFlights.length - 1] || null;
+
     vuelos.push({
       precio: vuelo.price,
       moneda: 'USD',
@@ -82,9 +87,10 @@ async function buscarVuelosSerpAPI(origen, destino, fecha_ida, fecha_vuelta) {
       llegada_ida: ultimoSegmento.arrival_airport?.time || '',
       duracion_ida: vuelo.total_duration || 0,
       escalas_ida: flights.length - 1,
-      aerolinea_vuelta: primerSegmento.airline || 'Desconocida',
-      salida_vuelta: '',
-      llegada_vuelta: '',
+      aerolinea_vuelta: primerSegmentoVuelta?.airline || primerSegmento.airline || 'Desconocida',
+      salida_vuelta: primerSegmentoVuelta?.departure_airport?.time || '',
+      llegada_vuelta: ultimoSegmentoVuelta?.arrival_airport?.time || '',
+      escalas_vuelta: returnFlights.length > 0 ? returnFlights.length - 1 : 0,
     });
   }
 
@@ -133,8 +139,10 @@ INSTRUCCIONES ESTRICTAS:
 - Muestra distintas aerolíneas si hay disponibles
 - Formato: aerolínea, horarios ida, precio total, número de escalas
 - El precio mostrado SIEMPRE incluye ida y vuelta (round trip) — indícalo claramente en cada opción
-- Los horarios de vuelta no están disponibles en estos datos — indica que se pueden ver en el link de compra
-- NO menciones que "se requiere validar" ni hagas observaciones sobre datos faltantes, solo indica que los horarios de regreso están en el link
+- Para cada opción muestra SIEMPRE:
+  ✈️ Ida: [fecha_ida], [salida_ida] → [llegada_ida]
+  🔄 Regreso: [fecha_vuelta], [salida_vuelta] → [llegada_vuelta] (si salida_vuelta está vacío, indica "ver horarios en el link de compra")
+- NO menciones que "se requiere validar" ni hagas observaciones sobre datos faltantes
 
 VUELOS DISPONIBLES:
 ${JSON.stringify(vuelos, null, 2)}`
